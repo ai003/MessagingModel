@@ -9,15 +9,74 @@ import SwiftUI
 import SDWebImageSwiftUI
 import Firebase
 
+
+struct FirebaseConstants {
+    static let fromId = "fromId"
+    static let toId = "toId"
+    static let text = "text"
+    static let timestamp = "timestamp"
+}
+
+struct ChatMessage: Identifiable {
+    
+    var id: String { documentId }
+    
+    let documentId: String
+    let fromId, toId, text: String
+    
+    init(documentId: String, data: [String: Any]) {
+        self.documentId = documentId
+        self.fromId = data[FirebaseConstants.fromId] as? String ?? ""
+        self.toId = data[FirebaseConstants.toId] as? String ?? ""
+        self.text = data[FirebaseConstants.text] as? String ?? ""
+    }
+}
+
 class ChatLogViewModel: ObservableObject {
     
     @Published var chatText = ""
     @Published var errorMessage = ""
     
+    @Published var chatMessages = [ChatMessage] ()
+    
     let chatUser: ChatUser?
     
     init(chatUser: ChatUser?) {
         self.chatUser = chatUser
+        
+        fetchMessages()
+    }
+    
+    private func fetchMessages() {
+        guard let fromId =
+            FirebaseManger.shared.auth.currentUser?.uid
+            else { return }
+        
+        guard let toId = chatUser?.uid else { return }
+        
+        FirebaseManger.shared.firestore
+            .collection("messages")
+            .document(fromId)
+            .collection(toId)
+            .order(by: FirebaseConstants.timestamp)
+            .addSnapshotListener { querySnapshot, error in
+                if let error = error {
+                    self.errorMessage = "Failed to listen for messages: \(error)"
+                    print(error)
+                    return
+                }
+                
+                querySnapshot?.documentChanges.forEach({ change in
+                    if change.type == .added {
+                        let data = change.document.data()
+                        self.chatMessages.append(.init(documentId: change.document.documentID, data: data))
+                    }
+                })
+                
+                DispatchQueue.main.async {
+                    self.count += 1
+                }
+            }
         
     }
     
@@ -34,7 +93,7 @@ class ChatLogViewModel: ObservableObject {
             .collection(toId)
             .document()
         
-        let messageData = ["fromId": fromId, "told": toId, "text": self.chatText, "timestamp": Timestamp()] as [String : Any]
+        let messageData = [FirebaseConstants.fromId: fromId, FirebaseConstants.toId: toId, FirebaseConstants.text: self.chatText, FirebaseConstants.timestamp: Timestamp()] as [String : Any]
         
         document.setData(messageData) { error in
             if let error = error {
@@ -46,6 +105,7 @@ class ChatLogViewModel: ObservableObject {
             
             //print("Successfully saved current user sending message")
             self.chatText = ""
+            self.count += 1
         }
         
         let recipientMessageDocument = FirebaseManger.shared.firestore.collection("messages")
@@ -65,6 +125,8 @@ class ChatLogViewModel: ObservableObject {
         }
         
     }
+    
+    @Published var count = 0
 }
 
 struct ChatLogView: View { 
@@ -83,13 +145,13 @@ struct ChatLogView: View {
         
         ZStack {
             messagesView
-            VStack(spacing: 0) {
-                Spacer()
-                chatBottomBar
-                    //.background(Color(hue: 1.0, saturation: 0.013, brightness: 0.54))
-                    .background(Color.white.ignoresSafeArea())
-                
-            }
+//            VStack(spacing: 0) {
+//                Spacer()
+//                chatBottomBar
+//                    //.background(Color(hue: 1.0, saturation: 0.013, brightness: 0.54))
+//                    .background(Color.white.ignoresSafeArea())
+//
+//            }
             Text(vm.errorMessage)
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -100,35 +162,47 @@ struct ChatLogView: View {
             }
             
         }
+//        .navigationBarItems(trailing: Button(action: {
+//            vm.count += 1
+//        }, label: {
+//            Text("count: \(vm.count)")
+//        }))
         
     }
     
+    static let emptyScrollTo = "Empty"
+    
     private var messagesView: some View {
-        ScrollView {
-            ForEach(0..<20) { num in
-                HStack {
-                    Spacer()
-                    HStack {
-                        Text("Fake Text Message")
-                            .foregroundColor(Color(.label))
+        VStack {
+            //if ios 15 available
+            ScrollView {
+                ScrollViewReader{ scrollViewProxy in
+                    VStack {
+                            ForEach(vm.chatMessages) { message in
+                                MessageView(message: message)
+                                
+                            }
+                            
+                            HStack { Spacer() }
+                            .id(Self.emptyScrollTo)
                     }
-                    .padding()
-                    .background(Color(hue: 0.762, saturation: 0.658, brightness: 0.858))
-                    .cornerRadius(12)
-                    
+                    .onReceive(vm.$count) { _ in
+                        withAnimation(.easeIn(duration: 0.15)) {
+                            scrollViewProxy.scrollTo(Self.emptyScrollTo, anchor: .bottom)
+                        }
+                    }
                 }
-                .padding(.horizontal)
-                .padding(.top, 6)
-                
             }
-            
-            HStack {
-                Spacer()
+            .background(Color(.init(white: 0.85, alpha: 1)))
+            //.background(Color(.init(gray: 0, alpha: 0.05)))
+            .safeAreaInset(edge: .bottom) {
+                chatBottomBar
+                    .background(Color(.systemBackground)
+                        .ignoresSafeArea())
             }
-            .frame(height: 50)
         }
-        .background(Color(.init(white: 0.85, alpha: 1)))
-        //.background(Color(.init(gray: 0, alpha: 0.05)))
+        
+        
         
     }
     
@@ -200,6 +274,51 @@ struct ChatLogView: View {
     }
     
     
+}
+
+struct MessageView: View {
+    
+    let message: ChatMessage
+    
+    var body: some View {
+        
+        VStack {
+            if message.fromId == FirebaseManger.shared.auth.currentUser?.uid {
+                HStack {
+                    Spacer()
+                    HStack {
+                        Text(message.text)
+                            .foregroundColor(Color(.label))
+                    }
+                    .padding()
+                    .background(Color(hue: 0.762, saturation: 0.658, brightness: 0.858))
+                    .cornerRadius(12)
+                    
+                }
+                
+                
+            } else {
+                HStack {
+                    HStack {
+                        Text(message.text)
+                            .foregroundColor(Color(.label))
+                    }
+                    .padding()
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    
+                    Spacer()
+                    
+                }
+                
+                
+            }
+            
+        }
+        .padding(.horizontal)
+        .padding(.top, 6)
+        
+    }
 }
 
 private struct DescriptionchatText: View {
