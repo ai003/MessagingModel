@@ -7,6 +7,8 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import Firebase
+import FirebaseFirestoreSwift
 
 
 
@@ -15,26 +17,71 @@ class MainMessagesViewModel: ObservableObject {
     
     @Published var errorMessage = ""
     @Published var chatUser: ChatUser?
+    @Published var isUserCurrentlyLoggedOut = false
+    
     
     init() {//initializes log out check
         
         DispatchQueue.main.async {
-            self.isUserCurrentlyLoggedOut = FirebaseManger.shared.auth.currentUser?.uid == nil
+            self.isUserCurrentlyLoggedOut = FirebaseManager.shared.auth.currentUser?.uid == nil
             
         }
         
         
         fetchCurrentUser()
+        
+        fetchRecentMessages()
+    }
+    
+    @Published var recentMessages = [RecentMessage]()
+    
+    private func fetchRecentMessages() {
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {
+            return }
+        
+        FirebaseManager.shared.firestore
+            .collection(FirebaseConstants.recentMessages)
+            .document(uid)
+            .collection(FirebaseConstants.messages)
+            .order(by: FirebaseConstants.timestamp)
+            .addSnapshotListener { querySnapshot, error in
+                if let error = error {
+                    self.errorMessage = "Failed to listen for recent messages: \(error)"
+                    print(error)
+                    return
+                }
+                
+                querySnapshot?.documentChanges.forEach({ change in
+                    let docId = change.document.documentID
+                    
+                    if let index = self.recentMessages.firstIndex(where: { rm in
+                        return rm.id == docId
+                    }) {
+                        self.recentMessages.remove(at: index)
+                    }
+                    
+                    //had error
+                    do {
+                        if let rm = try? change.document.data(as: RecentMessage.self) {
+                            self.recentMessages.insert(rm, at: 0)
+                        }
+                    } catch {
+                        print(error)
+                    }
+                    
+                })
+            }
+        
     }
     
     //Gets the data for current user logged in from Firebase
     func fetchCurrentUser() {
-        guard let uid = FirebaseManger.shared.auth.currentUser?.uid else {
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {
             self.errorMessage = "Couldn't find firebase uid"
             return }
         
         
-        FirebaseManger.shared.firestore.collection("users").document(uid).getDocument { snapshot, error in
+        FirebaseManager.shared.firestore.collection("users").document(uid).getDocument { snapshot, error in
             if let error = error {
                 
                 self.errorMessage = "Failed to fetch current user: \(error)"
@@ -54,11 +101,11 @@ class MainMessagesViewModel: ObservableObject {
         }
     }
     
-    @Published var isUserCurrentlyLoggedOut = false
+    
     
     func handleSignOut() {
         isUserCurrentlyLoggedOut.toggle()
-        try? FirebaseManger.shared.auth.signOut()
+        try? FirebaseManager.shared.auth.signOut()
     }
     
 }
@@ -169,16 +216,9 @@ struct MainMessagesView: View {
     private var messagesView: some View {
         //scrollview for messages
         ScrollView{
-            ForEach(0..<10, id: \.self) { num in
-                NavigationLink {
-                    Text("Destination")
-                } label: {
-                    messageRow
-                }
-                .foregroundColor(Color(.label))
-
-            }
-            .padding(.bottom, 50)
+            
+            messageRow
+            
             
         }
         
@@ -212,35 +252,53 @@ struct MainMessagesView: View {
     }
     
     private var messageRow: some View {
-        
-        VStack {
-            HStack(spacing: 16){ //one message view
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 32))
-                        .padding(8)
-                        .overlay(RoundedRectangle(cornerRadius: 44).stroke(Color(.label), lineWidth: 1))
-                
-                VStack(alignment: .leading){
-                    HStack {
-                        Text("Username")
-                        .font(.system(size: 16, weight: .bold))
+
+        ForEach(vm.recentMessages) { recentMessage in
+            NavigationLink {
+                Text("Destination")
+            } label: {
+
+                VStack {
+                    HStack(spacing: 16){ //one message view
                         
-                        Spacer()
+                        WebImage(url: URL(string: recentMessage.profileImageUrl))
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 50, height: 50)
+                            .clipped()
+                            .cornerRadius(50)
+                            .shadow(radius: 5)
+
                         
-                        Text("22d")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                        Text("Message sent to user")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color(.lightGray))
-                    }
-                    
+                        VStack(alignment: .leading){
+                            HStack {
+                                Text(recentMessage.email)
+                                .font(.system(size: 16, weight: .bold))
+                                .multilineTextAlignment(.leading)
+
+                                Spacer()
+                                
+                                Text(recentMessage.timestamp.description)
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            Text(recentMessage.text)
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(.darkGray))
+                                .multilineTextAlignment(.leading)
+                            }
+                            
+                        }
+                        Divider()
+                        .padding(.vertical, 8)
+                        
                 }
-                Divider()
-                .padding(.vertical, 8)
-                
+                .padding(.horizontal)
+            }
+            .foregroundColor(Color(.label))
+
         }
-        .padding(.horizontal)
+        .padding(.bottom, 50)
+        
     }
     
     @State var chatUser: ChatUser?

@@ -161,7 +161,7 @@ struct LoginView: View {
     //handles user logging in
     private func loginUser() {
         //authenicates user with firebase
-        FirebaseManger.shared.auth.signIn(withEmail: email, password: password) { result, err in
+        FirebaseManager.shared.auth.signIn(withEmail: email, password: password) { result, err in
             
             //error messages
             if let err = err {
@@ -189,7 +189,7 @@ struct LoginView: View {
         }
         
         //creates user with firebase
-        FirebaseManger.shared.auth.createUser(withEmail: email, password: password) { result, err in
+        FirebaseManager.shared.auth.createUser(withEmail: email, password: password) { result, err in
             if let err = err {
                 
                 print("Failed to create user:", err)
@@ -207,9 +207,9 @@ struct LoginView: View {
     
     //saves the image to the storage
     private func persistImageToStorage() {
-        guard let uid = FirebaseManger.shared.auth.currentUser?.uid
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid
         else { return}
-        let ref = FirebaseManger.shared.storage.reference(withPath: uid)
+        let ref = FirebaseManager.shared.storage.reference(withPath: uid)
         guard let imageData = self.image?.jpegData(compressionQuality: 0.5) else { return }
         
         ref.putData(imageData) { metadata, err in
@@ -237,10 +237,10 @@ struct LoginView: View {
     
     //func for storing users info when logged in
     private func storeUserInformation(imageProfileUrl: URL) {
-        guard let uid = FirebaseManger.shared.auth.currentUser?.uid else {
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {
             return  }
         let userData = ["email": self.email, "uid": uid, "profileImageUrl": imageProfileUrl.absoluteString]
-        FirebaseManger.shared.firestore.collection("users")
+        FirebaseManager.shared.firestore.collection("users")
             .document(uid).setData(userData) { err in
                 if let err = err {
                     print(err)

@@ -20,7 +20,7 @@ class CreateNewMessageViewModel: ObservableObject {
     }
     
     private func fetchAllUsers() {
-        FirebaseManger.shared.firestore.collection("users")
+        FirebaseManager.shared.firestore.collection("users")
             .getDocuments { documentsSnapshot, error in
                 if let error = error {
                     self.errorMessage = "Failed to fetch users: \(error)"
@@ -34,7 +34,7 @@ class CreateNewMessageViewModel: ObservableObject {
                 documentsSnapshot?.documents.forEach({ snapshot in
                     let data = snapshot.data()//option to show yourself as part of the new messages
                     let user = ChatUser(data: data)
-                    if user.uid != FirebaseManger.shared.auth.currentUser?.uid {
+                    if user.uid != FirebaseManager.shared.auth.currentUser?.uid {
                         self.users.append(.init(data: data))
                     }
                     
