@@ -96,7 +96,7 @@ class ChatLogViewModel: ObservableObject {
                 return
             }
             
-            //print("Successfully saved current user sending message")
+            print("Successfully saved current user sending message")
             
             self.persistRecentMessage()
             
